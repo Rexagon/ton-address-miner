@@ -5,8 +5,8 @@ set(CMAKE_CUDA_STANDARD 14)
 
 set(SUBPROJ ton-address-miner)
 
-set(BIP39_HEADER "${CMAKE_CURRENT_BINARY_DIR}/include/bip39.h")
-set(BIP39_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/bip39.cpp")
+set(BIP39_HEADER "${CMAKE_CURRENT_BINARY_DIR}/include/bip39.cuh")
+set(BIP39_SOURCE "${CMAKE_CURRENT_BINARY_DIR}/bip39.cu")
 
 add_custom_command(
         OUTPUT "${BIP39_HEADER}" "${BIP39_SOURCE}"
@@ -18,8 +18,14 @@ add_custom_target(generate-bip39-dict ALL DEPENDS)
 
 message("${BIP39_HEADER}")
 
-add_executable("${SUBPROJ}" src/main.cu "${BIP39_HEADER}")
+add_executable("${SUBPROJ}"
+        src/main.cu
+        src/sha256.cu
+        src/sha256.cuh
+        "${BIP39_SOURCE}"
+        "${BIP39_HEADER}")
 target_include_directories("${SUBPROJ}" PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
+target_link_libraries("${SUBPROJ}" PRIVATE curand)
 
 set_target_properties(
         "${SUBPROJ}"

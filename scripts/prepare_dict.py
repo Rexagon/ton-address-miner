@@ -21,13 +21,14 @@ def main(path: str, declaration: str, definition: str):
     if len(raw_dict) % 4 != 0:
         raise RuntimeError("raw dictionary data is not aligned")
 
-    generated_definition = "const uint32_t BIP39[] = {"
+    raw_dict_len = int(len(raw_dict) / 4)
+    generated_definition = f"#include <cstdint>\n\n__constant__ uint32_t BIP39[{raw_dict_len}] = {{"
 
     i = 0
     while i < len(raw_dict):
         number = 0
         for j in range(4):
-            number += raw_dict[i + (3 - j)] << (j * 8)
+            number += raw_dict[i + j] << (j * 8)
 
         if i != 0:
             generated_definition += ','
@@ -41,7 +42,7 @@ def main(path: str, declaration: str, definition: str):
 
     os.makedirs(os.path.dirname(declaration), exist_ok=True)
     with open(declaration, 'w') as f:
-        generated_declaration = "#pragma once\n\nextern uint32_t BIP39[];\n"
+        generated_declaration = f"#pragma once\n\n#include <cstdint>\n\nextern __constant__ uint32_t BIP39[{raw_dict_len}];\n"
         f.write(generated_declaration)
         print(f"Generated declaration in {declaration}")
 
