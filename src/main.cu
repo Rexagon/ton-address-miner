@@ -7,14 +7,17 @@
 #include <bip39.cuh>
 
 #include "sha256.cuh"
+#include "sha512.cuh"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
 constexpr auto ENTROPY_OFFSET = 8u;
 constexpr auto MAX_BIP39_WORD_LEN = 8u;
+constexpr auto PBKDF2_ROUNDS = 2048;
 
-constexpr auto THREAD_COUNT = 8192u;
+constexpr auto THREAD_COUNT = 8192u * 16u * 16u;
 constexpr auto THREADS_PER_BLOCK = 256u;
+constexpr auto BLOCK_COUNT = (THREAD_COUNT + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
 enum MnemonicType : uint32_t {
   Words12 = (128u << ENTROPY_OFFSET) | 4u,
@@ -75,15 +78,13 @@ __global__ void init_kernel(curandState* states, uint64_t seed) {
   curand_init(seed, idx, 0, &states[idx]);
 }
 
-__global__ void generate_words(curandState* states, char* output) {
-  const auto idx = threadIdx.x + blockIdx.x * blockDim.x;
-
+__device__ int generate_words(curandState* state, char* output) {
   // Generate entropy
   uint8_t buffer[ENTROPY_SIZE + 1];
   static_assert(ENTROPY_SIZE % 4 == 0, "Unaligned entropy used");
 
   for (auto i = 0; i < ENTROPY_SIZE / 4; ++i) {
-    const auto randChunk = curand(&states[idx]);
+    const auto randChunk = curand(state);
     static_assert(sizeof(randChunk) == 4, "Invalid rand chunk length");
 
     for (auto j = 0; j < 4; ++j) {
@@ -95,10 +96,11 @@ __global__ void generate_words(curandState* states, char* output) {
   Sha256Context ctx{};
   sha256_init(&ctx);
   sha256_update(&ctx, buffer, ENTROPY_SIZE);
+  sha256_final(&ctx);
   buffer[ENTROPY_SIZE] = ctx.state[0] >> 24u;
 
   // Generate phrase
-  auto phraseOffset = idx * MAX_PHRASE_LENGTH;
+  auto phraseLength = 0;
   auto bitsOffset = 0;
   for (auto i = 0; i < WORD_COUNT; ++i) {
     const auto j = bitsOffset / 8u;
@@ -123,21 +125,71 @@ __global__ void generate_words(curandState* states, char* output) {
     bitsOffset += 11u;
 
     if (word_i >= 2048) {
-      output[phraseOffset++] = 'A';
+      output[phraseLength++] = 'A';
       continue;
     }
 
     if (i != 0) {
-      output[phraseOffset++] = ' ';
+      output[phraseLength++] = ' ';
     }
     auto word = reinterpret_cast<const char*>(&BIP39[word_i * 2]);
     for (auto k = 0; k < MAX_BIP39_WORD_LEN && word[k] != 0; ++k) {
-      output[phraseOffset++] = word[k];
+      output[phraseLength++] = word[k];
     }
   }
+  output[phraseLength] = 0;
+
+  return phraseLength;
+}
+
+__device__ void recoverKey(const char* words, int length) {
+  uint8_t seed[64];
+  // TODO: pbkdf2-sha512
+
+  uint8_t hmac[64];
+  // TODO: hmac
+
+  // TODO: derive
+}
+
+__global__ void generate_key(curandState* states, char* output) {
+  const auto idx = threadIdx.x + blockIdx.x * blockDim.x;
+
+  // Generate words
+  auto words = &output[idx * MAX_PHRASE_LENGTH];
+  const auto phraseLength = generate_words(&states[idx], words);
+
+  // Recover key
+  recoverKey(words, phraseLength);
+}
+
+__global__ void test_sha512(uint8_t* output) {
+  const char buffer[] = "Hello world";
+
+  Sha512Context ctx{};
+  sha512_init(&ctx);
+  sha512_update(&ctx, reinterpret_cast<const uint8_t*>(buffer), sizeof(buffer) - 1);
+  sha512_final(&ctx);
+  sha512_write_output(&ctx, output);
 }
 
 auto main() -> int {
+  // TEST sha512
+  {
+    uint8_t* sha_output;
+    UNWRAP_GPU(cudaMallocManaged(&sha_output, 64))
+    test_sha512<<<1, 1>>>(sha_output);
+    UNWRAP_GPU(cudaPeekAtLastError())
+    UNWRAP_GPU(cudaDeviceSynchronize())
+
+    for (auto i = 0; i < 64; ++i) {
+      printf("%02x", static_cast<int>(sha_output[i]));
+    }
+    printf("\n");
+
+    UNWRAP_GPU(cudaFree(sha_output))
+  }
+
   curandState* states;
   UNWRAP_GPU(cudaMalloc(&states, THREAD_COUNT * sizeof(curandState)))
 
@@ -146,15 +198,15 @@ auto main() -> int {
 
   std::cout << "Word count: " << WORD_COUNT << std::endl;
 
-  init_kernel<<<(THREAD_COUNT + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(states, 1);
+  init_kernel<<<BLOCK_COUNT, THREADS_PER_BLOCK>>>(states, 1);
   UNWRAP_GPU(cudaPeekAtLastError())
   UNWRAP_GPU(cudaDeviceSynchronize())
 
-  generate_words<<<(THREAD_COUNT + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK, THREADS_PER_BLOCK>>>(states, output);
+  generate_key<<<BLOCK_COUNT, THREADS_PER_BLOCK>>>(states, output);
   UNWRAP_GPU(cudaPeekAtLastError())
   UNWRAP_GPU(cudaDeviceSynchronize())
 
-  for (auto i = 0; i < THREAD_COUNT; ++i) {
+  for (auto i = 0; i < MIN(THREAD_COUNT, 1); ++i) {
     printf("%s\n", &output[i * MAX_PHRASE_LENGTH]);
   }
 

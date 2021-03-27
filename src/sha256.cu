@@ -19,7 +19,7 @@ __constant__ uint32_t sha256_kernel[] = {
     0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
     0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2};
 
-__device__ void sha256_transform(Sha256Context *ctx, const uint8_t data[]) {
+__device__ void sha256_transform(Sha256Context *ctx, const uint8_t data[64]) {
   uint32_t a, b, c, d, e, f, g, h, i, j, t1, t2, m[64];
 
 #pragma unroll 16
@@ -79,10 +79,8 @@ __device__ void sha256_init(Sha256Context *ctx) {
 }
 
 __device__ void sha256_update(Sha256Context *ctx, const uint8_t data[], size_t len) {
-  uint32_t i;
-
   // for each byte in message
-  for (i = 0; i < len; ++i) {
+  for (auto i = 0; i < len; ++i) {
     // ctx->data == message 512 bit chunk
     ctx->data[ctx->dataLen] = data[i];
     ctx->dataLen++;

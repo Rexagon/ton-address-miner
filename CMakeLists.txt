@@ -22,6 +22,8 @@ add_executable("${SUBPROJ}"
         src/main.cu
         src/sha256.cu
         src/sha256.cuh
+        src/sha512.cu
+        src/sha512.cuh
         "${BIP39_SOURCE}"
         "${BIP39_HEADER}")
 target_include_directories("${SUBPROJ}" PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
