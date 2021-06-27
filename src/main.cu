@@ -9,6 +9,7 @@
 #include "sha256.cuh"
 #include "sha512.cuh"
 #include "pbkdf2.cuh"
+#include "hmac_sha512.cuh"
 
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 
@@ -164,31 +165,29 @@ __global__ void generate_key(curandState* states, char* output) {
   recoverKey(words, phraseLength);
 }
 
-__global__ void test_hmac_sha512(uint8_t* output) {
-  const char buffer[] = "Hello world";
+__global__ void test_pbkdf2_sha512(uint8_t* output) {
+  const char password[] = "paddle plastic alpha wall know runway sauce can man journey lottery whale";
+  const char salt[] = "mnemonic";
 
-  HmacSha512Context ctx{};
-  hmac_sha512_init(&ctx, reinterpret_cast<const uint8_t*>("mnemonic"), 8);
-  hmac_sha512_update(&ctx, reinterpret_cast<const uint8_t*>(buffer), sizeof(buffer) - 1);
-  hmac_sha512_final(&ctx);
-  hmac_sha512_write_output(&ctx, output);
+  pbkdf2_sha512(reinterpret_cast<const uint8_t*>(password), sizeof(password) - 1,
+                reinterpret_cast<const uint8_t*>(salt), sizeof(salt) - 1, PBKDF2_ROUNDS, output, 64);
 }
 
 auto main() -> int {
   // TEST sha512
   {
-    uint8_t* hmac_output;
-    UNWRAP_GPU(cudaMallocManaged(&hmac_output, 64))
-    test_hmac_sha512<<<1, 1>>>(hmac_output);
+    uint8_t* pbkdf2_output;
+    UNWRAP_GPU(cudaMallocManaged(&pbkdf2_output, 64))
+    test_pbkdf2_sha512<<<1, 1>>>(pbkdf2_output);
     UNWRAP_GPU(cudaPeekAtLastError())
     UNWRAP_GPU(cudaDeviceSynchronize())
 
     for (auto i = 0; i < 64; ++i) {
-      printf("%02x", static_cast<int>(hmac_output[i]));
+      printf("%02x", static_cast<int>(pbkdf2_output[i]));
     }
     printf("\n");
 
-    UNWRAP_GPU(cudaFree(hmac_output))
+    UNWRAP_GPU(cudaFree(pbkdf2_output))
   }
 
   curandState* states;

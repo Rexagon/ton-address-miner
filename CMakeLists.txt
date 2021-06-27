@@ -20,6 +20,8 @@ message("${BIP39_HEADER}")
 
 add_executable("${SUBPROJ}"
         src/main.cu
+        src/hmac_sha512.cu
+        src/hmac_sha512.cuh
         src/pbkdf2.cu
         src/pbkdf2.cuh
         src/sha256.cu
