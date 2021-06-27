@@ -23,7 +23,6 @@ constexpr auto BLOCK_COUNT = (THREAD_COUNT + THREADS_PER_BLOCK - 1) / THREADS_PE
 
 enum MnemonicType : uint32_t {
   Words12 = (128u << ENTROPY_OFFSET) | 4u,
-  Words24 = (256u << ENTROPY_OFFSET) | 8u,
 };
 
 constexpr auto entropy_bits(MnemonicType type) -> size_t {
@@ -146,10 +145,15 @@ __device__ int generate_words(curandState* state, char* output) {
 
 __device__ void recoverKey(const char* words, int length) {
   uint8_t seed[64];
-  // TODO: pbkdf2-sha512
+  pbkdf2_sha512(reinterpret_cast<const uint8_t*>(words), length, reinterpret_cast<const uint8_t*>("mnemonic"), 8,
+                PBKDF2_ROUNDS, seed, 64);
 
   uint8_t hmac[64];
-  // TODO: hmac
+  HmacSha512Context ctx{};
+  hmac_sha512_init(&ctx, reinterpret_cast<const uint8_t*>("Bitcoin seed"), 12);
+  hmac_sha512_update(&ctx, seed, 64);
+  hmac_sha512_final(&ctx);
+  hmac_sha512_write_output(&ctx, hmac);
 
   // TODO: derive
 }
