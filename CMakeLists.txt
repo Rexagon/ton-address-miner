@@ -15,3 +15,4 @@ add_executable(mineaddr
         src/contract.c)
 
 target_link_libraries(mineaddr crypto pthread)
+target_compile_options(mineaddr PUBLIC -O3 -m64 -march=native)

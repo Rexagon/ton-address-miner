@@ -36,11 +36,6 @@ uint8_t* cell_get_refs(const Cell* self, uint8_t* refs_count) {
 }
 
 uint16_t deserialize_cell(Cell* cell) {
-  uint8_t d1 = cell_get_d1(cell);
-  uint8_t h = (d1 & 16) == 16;  // with hashes
-  uint8_t s = (d1 & 8) == 8;    // exotic
-  uint8_t r = d1 & 7;           // refs count
-
   uint8_t data_size = cell_get_data_size(cell);
   uint8_t refs_count = 0;
   cell_get_refs(cell, &refs_count);
