@@ -170,6 +170,8 @@ bool get_address(int thread_id, ContractContext* cc, Arguments* args, const uint
 
       pthread_mutex_unlock(&output_lock);
 
+      fflush(stdout);
+
       atomic_store_explicit(&max_affinity, affinity, memory_order_release);  // TODO: improve replace
     }
   }
