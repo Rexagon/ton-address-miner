@@ -46,10 +46,10 @@ bool group_init(EC_GROUP** group) {
   return *group != NULL;
 }
 
-int generate_mnemonic(char* output) {
+int generate_mnemonic(bool fast, char* output) {
   // Generate entropy
   uint8_t buffer[ENTROPY_SIZE + 1];
-  getrandom(buffer, ENTROPY_SIZE, GRND_RANDOM);
+  getrandom(buffer, ENTROPY_SIZE, fast ? 0 : GRND_RANDOM);
 
   // Calculate checksum
   uint8_t checksum[32];
@@ -100,6 +100,24 @@ int generate_mnemonic(char* output) {
   output[phrase_length] = 0;
 
   return (int)phrase_length;
+}
+
+bool generate_key_pair(bool fast, uint8_t* private_key, uint8_t* public_key) {
+  getrandom(private_key, PRIVATE_KEY_LEN, fast ? 0 : GRND_RANDOM);
+
+  EVP_PKEY* pkey = EVP_PKEY_new_raw_private_key(EVP_PKEY_ED25519, NULL, private_key, PRIVATE_KEY_LEN);
+  if (pkey == NULL) {
+    return false;
+  }
+
+  size_t len = 32;
+  if (!EVP_PKEY_get_raw_public_key(pkey, public_key, &len)) {
+    EVP_PKEY_free(pkey);
+    return false;
+  }
+
+  EVP_PKEY_free(pkey);
+  return true;
 }
 
 bool recover_key(EC_GROUP* group, const char* phrase, int phrase_len, struct PrivateKey* private_key) {

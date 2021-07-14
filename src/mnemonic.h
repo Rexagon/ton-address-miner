@@ -9,7 +9,8 @@
 
 bool group_init(EC_GROUP** group);
 
-int generate_mnemonic(char* output);
+int generate_mnemonic(bool fast, char* output);
+bool generate_key_pair(bool fast, uint8_t* private_key, uint8_t* public_key);
 
 typedef struct PrivateKey {
   EC_KEY* handle;
