@@ -36,7 +36,12 @@ void slice_data_init(SliceData* self, uint8_t* data, uint16_t data_size_bytes);
 void slice_data_fill(SliceData* self, uint8_t value, uint16_t data_size_bytes);
 void slice_data_truncate(SliceData* self, uint16_t size);
 uint16_t slice_data_remaining_bits(const SliceData* self);
-void slice_data_move_by(SliceData* self, uint16_t offset);
+inline void slice_data_move_by(SliceData* self, uint16_t offset) {
+  self->data_window_start += offset;
+}
+inline void slice_data_move_to(SliceData* self, uint16_t offset) {
+  self->data_window_start = offset;
+}
 uint8_t slice_data_get_bits(const SliceData* self, uint16_t offset, uint8_t bits);
 uint8_t slice_data_get_next_bit(SliceData* self);
 uint64_t slice_data_get_next_int(SliceData* self, uint8_t bits);

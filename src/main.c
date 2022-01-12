@@ -10,6 +10,9 @@
 #include "contract.h"
 #include "cell.h"
 
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+
 const uint8_t BITS[16] = {4, 3, 2, 2, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
 
 atomic_int started_threads;
@@ -19,14 +22,14 @@ pthread_mutex_t output_lock = PTHREAD_MUTEX_INITIALIZER;
 const char* argp_program_version = "mineaddr 0.1.0";
 static char doc[] = "Simple and fast multisig address miner for TON";
 static struct argp_option options[] = {
-    {"nomnemonic", 'n', 0, 0, "Generate only keys"}, {"fast", 'f', 0, 0, "Use /dev/random"}, {0}};
+    {"nomnemonic", 'n', 0, 0, "Generate only keys", 0}, {"fast", 'f', 0, 0, "Use /dev/random", 0}, {0}};
 
 typedef struct Arguments {
   bool no_nemonic;
   bool fast;
 } Arguments;
 
-static error_t parse_opt(int key, char* arg, struct argp_state* state) {
+static error_t parse_opt(int key, char*, struct argp_state* state) {
   struct Arguments* arguments = state->input;
   switch (key) {
     case 'n':
@@ -45,7 +48,7 @@ static error_t parse_opt(int key, char* arg, struct argp_state* state) {
 
 static struct argp argp = {options, parse_opt, "", doc, 0, 0, 0};
 
-uint8_t get_affinity(const uint8_t* left, const uint8_t* right) {
+inline uint8_t get_affinity(const uint8_t* left, const uint8_t* right) {
   uint8_t result = 0;
   for (int i = 0; i < 32; ++i) {
     const uint8_t x = left[i] ^ right[i];
@@ -66,7 +69,7 @@ uint8_t get_affinity(const uint8_t* left, const uint8_t* right) {
 }
 
 bool get_address(int thread_id, ContractContext* cc, Arguments* args, const uint8_t* prefix) {
-  const bool no_mnemonic = args->no_nemonic;
+  // const bool no_mnemonic = args->no_nemonic;
   const bool fast = args->fast;
 
   EC_GROUP* secp256k1;
@@ -85,83 +88,89 @@ bool get_address(int thread_id, ContractContext* cc, Arguments* args, const uint
   }
 
   find_public_key_cell(&bc);  // sets public key cell index to boc_context
+  Cell* cell = &bc.cells[bc.public_key_cell_index];
+  uint8_t cell_data_size = cell_get_data_size(cell);
+  uint8_t* cell_data = cell_get_data(cell);
 
-  char phrase[MAX_PHRASE_LENGTH];
+  memcpy(bc.public_key_cell_data, cell_data, cell_data_size);
+
+  uint8_t* data = bc.public_key_cell_data;
+  SliceData slice;
+  slice_data_init(&slice, data, sizeof(bc.public_key_cell_data));
+  slice_data_move_by(&slice, bc.public_key_label_size_bits);
+  uint8_t public_key_offset = slice.data_window_start;
+
+  // char phrase[MAX_PHRASE_LENGTH];
   uint8_t private_key[32];
   uint8_t public_key[32];
+
+  uint8_t previous_affinity = 0;
 
   int iteration = 0;
   while (true) {
     iteration += 1;
 
-    if (no_mnemonic) {
-      if (!generate_key_pair(fast, private_key, public_key)) {
-        fprintf(stderr, "failed to generate key pair\n");
-        return 1;
-      }
-    } else {
-      const int phrase_len = generate_mnemonic(fast, phrase);
-      if (phrase_len < 0) {
-        fprintf(stderr, "failed to generate mnemonic\n");
-        return 1;
-      }
-
-      PrivateKey pk;
-      if (!recover_key(secp256k1, phrase, phrase_len, &pk)) {
-        fprintf(stderr, "failed to recover seed phrase\n");
-        return 1;
-      }
-
-      if (!private_key_serialize_raw_public(&pk, public_key)) {
-        fprintf(stderr, "failed to get public key\n");
-        return 1;
-      }
-
-      private_key_close(&pk);
+    if (unlikely(!generate_key_pair(fast, private_key, public_key))) {
+      fprintf(stderr, "failed to generate key pair\n");
+      return 1;
     }
 
-    Cell* cell = &bc.cells[bc.public_key_cell_index];
-    uint8_t cell_data_size = cell_get_data_size(cell);
-    uint8_t* cell_data = cell_get_data(cell);
+    // const int phrase_len = generate_mnemonic(fast, phrase);
+    // if (phrase_len < 0) {
+    //   fprintf(stderr, "failed to generate mnemonic\n");
+    //   return 1;
+    // }
+    //
+    // PrivateKey pk;
+    // if (!recover_key(secp256k1, phrase, phrase_len, &pk)) {
+    //   fprintf(stderr, "failed to recover seed phrase\n");
+    //   return 1;
+    // }
+    //
+    // if (!private_key_serialize_raw_public(&pk, public_key)) {
+    //   fprintf(stderr, "failed to get public key\n");
+    //   return 1;
+    // }
+    //
+    // private_key_close(&pk);
 
-    memcpy(bc.public_key_cell_data, cell_data, cell_data_size);
-
-    uint8_t* data = bc.public_key_cell_data;
-    SliceData slice;
-    slice_data_init(&slice, data, sizeof(bc.public_key_cell_data));
-    slice_data_move_by(&slice, bc.public_key_label_size_bits);
+    slice_data_move_to(&slice, public_key_offset);
     slice_data_append(&slice, public_key, 32 * 8, true);
 
     for (int i = bc.cells_count - 1; i >= 1; --i) {
       Cell* bc_cell = &bc.cells[i];
-      if (!calc_cell_hash(bc_cell, i, &bc)) {
+      if (unlikely(!calc_cell_hash(bc_cell, i, &bc))) {
         return false;
       }
     }
 
-    if (!calc_root_cell_hash(&bc.cells[0], &bc, cc)) {
+    if (unlikely(!calc_root_cell_hash(&bc.cells[0], &bc, cc))) {
       return false;
     }
 
     const uint8_t affinity = get_affinity(bc.hashes, prefix);
+
+    if (likely(affinity <= previous_affinity)) {
+      continue;
+    }
+
     const uint8_t current_affinity = atomic_load_explicit(&max_affinity, memory_order_acquire);
 
-    if (affinity > current_affinity) {
+    if (likely(affinity > current_affinity)) {
       pthread_mutex_lock(&output_lock);
 
       printf("[thread %d][iteration %d] %d bits matched\n", thread_id, iteration, affinity);
-      if (no_mnemonic) {
-        printf("Private key: ");
-        for (int i = 0; i < 32; ++i) {
-          printf("%02x", private_key[i]);
-        }
-        printf("\nPublic key: ");
-        for (int i = 0; i < 32; ++i) {
-          printf("%02x", public_key[i]);
-        }
-      } else {
-        printf("Mnemonic: %s", phrase);
+      printf("Private key: ");
+      for (int i = 0; i < 32; ++i) {
+        printf("%02x", private_key[i]);
       }
+      printf("\nPublic key: ");
+      for (int i = 0; i < 32; ++i) {
+        printf("%02x", public_key[i]);
+      }
+
+      // printf("Mnemonic: %s", phrase);
+
       printf("\nAddress: ");
       for (int i = 0; i < 32; ++i) {
         printf("%02x", bc.hashes[i]);
@@ -173,6 +182,7 @@ bool get_address(int thread_id, ContractContext* cc, Arguments* args, const uint
       fflush(stdout);
 
       atomic_store_explicit(&max_affinity, affinity, memory_order_release);  // TODO: improve replace
+      previous_affinity = affinity;
     }
   }
 }

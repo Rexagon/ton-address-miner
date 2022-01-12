@@ -65,10 +65,6 @@ uint16_t slice_data_remaining_bits(const SliceData* self) {
   return self->data_window_end - self->data_window_start;
 }
 
-void slice_data_move_by(SliceData* self, uint16_t offset) {
-  self->data_window_start += offset;
-}
-
 uint8_t slice_data_get_bits(const SliceData* self, uint16_t offset, uint8_t bits) {
   uint16_t index = self->data_window_start + offset;
   uint8_t q = index / 8;
@@ -246,7 +242,7 @@ uint8_t get_label(uint8_t max, SliceData* slice, SliceData* label) {
 }
 
 void put_to_node(uint8_t cell_index, uint16_t bit_len, SliceData* key, BocContext* bc) {
-  static const uint8_t key_len_bytes = 8;
+  // static const uint8_t key_len_bytes = 8;
 
   Cell* cell = &bc->cells[cell_index];
   SliceData slice;
